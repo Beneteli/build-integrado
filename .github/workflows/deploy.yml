@@ -1,0 +1,86 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - feature/build-integrado
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  HUSKY: 0
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout branch alvo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Empacotar dist
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Configurar chave SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Transferir pacote para Linux
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          scp -P "$PORT" -o StrictHostKeyChecking=no dist.tar.gz "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/dist.tar.gz"
+
+      - name: Executar deploy remoto
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+
+          ssh -p "$PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" << EOF
+            set -euo pipefail
+            mkdir -p "$DEPLOY_PATH/current"
+            tar -xzf "$DEPLOY_PATH/dist.tar.gz" -C "$DEPLOY_PATH/current"
+            rm -f "$DEPLOY_PATH/dist.tar.gz"
+
+            # Ajuste este bloco para o seu processo real (pm2/systemd/docker compose)
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 reload all || true
+            fi
+          EOF
