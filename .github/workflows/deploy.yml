@@ -3,7 +3,7 @@ name: deploy
 on:
   push:
     branches:
-      - feature/build-integrado
+      - main
   workflow_dispatch: {}
 
 permissions:
@@ -27,22 +27,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          cache: npm
 
       - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
+        run: npm ci
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Empacotar dist
         run: tar -czf dist.tar.gz -C dist .
